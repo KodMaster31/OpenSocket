@@ -1,34 +1,31 @@
-Program Adı
-​socketctl (Ana Çalıştırılabilir Dosya)
-​Komut İsimleri (Sembolik Bağlantılar)
-​opensocket
-​shutdownsocket
-​Geliştirici
-​KodiMaster31 (Mustafa)
-​Amaç
-​Bu bash betiği, Termux ortamında kullanıcı tanımlı bir TCP portunu arka planda dinlemeye almak (opensocket) ve bu dinleme işlemini güvenli bir şekilde sonlandırmak (shutdownsocket) amacıyla tasarlanmıştır. Program, Netcat (nc) aracı üzerinden socket yönetimini kolaylaştırmaktadır.
-​Kurulum Kaynağı (Repository)
-​Adres: https://github.com/KodMaster31/OpenSocket
-​Dosya: socketctl.sh
-​Ham (Raw) Bağlantı: https://raw.githubusercontent.com/KodMaster31/OpenSocket/refs/heads/main/socketctl.sh
-​Ön Koşullar ve Bağımlılıklar
-​Programın Termux mobil ortamında stabil çalışması için aşağıdaki paketlerin sistemde yüklü olması zorunludur:
-​wget (Dosya indirme aracı)
-​netcat-openbsd (Socket dinleme aracı, komut içi nc olarak kullanılır)
-​Kurulum Prosedürü (Tek Satır Komut)
-​Aşağıdaki komut, gerekli bağımlılıkların kontrolü ve kurulumu yapılmadan, yalnızca betiğin indirilmesi ve sistem komutları olarak tanımlanması işlemlerini gerçekleştirir. Bu komutun başarılı olması için kullanıcının önceden wget ve netcat-openbsd paketlerini kurmuş olması gerekmektedir.
-Kullanım Kılavuzu
-​Program, komut adı ve dinlenmesi/kapatılması istenen port numarası argümanı ile çalıştırılır.
-Port Açma opensocket <PORT_NUMARASI> Belirtilen TCP portunu arka planda sürekli dinlemeye alır.
-Port Kapatma shutdownsocket <PORT_NUMARASI> Belirtilen port numarasında aktif olan dinleme sürecini sonlandırır.
-Örnekler:
-​3131 numaralı portu dinlemeye alma:
-opensocket 3131
-​3131 numaralı porttaki dinlemeyi sonlandırma:
-shutdownsocket 3131
-​Teknik İşleyiş Özeti
-​Çalıştırma Tespiti: Betik, $0 değişkeni ile hangi sembolik link (yani opensocket veya shutdownsocket) üzerinden çağrıldığını tespit eder.
-​PID Yönetimi: Dinlemeye alınan her port için, sürecin PID (Process ID) değeri, $PREFIX/tmp/socket.<PORT>.pid formatında geçici bir dosyaya kaydedilir.
-​Açma (opensocket): Belirtilen port boş ise, netcat (nc -l -k -p $PORT) komutunu arka planda çalıştırır ve PID'yi ilgili PID dosyasına yazar. -k parametresi, ilk bağlantı kesilse bile dinlemeyi sürdürmesini sağlar.
-​Kapatma (shutdownsocket): İlgili PID dosyasından süreç kimliğini okur ve kill komutu ile bu süreci sonlandırır. Ardından geçici PID dosyası silinir.
-​Hata Kontrolü: Program, geçersiz port numarası girilmesi veya zaten açık/kapalı olan bir port üzerinde işlem yapılmaya çalışılması gibi durumlarda kullanıcıya uyarılar sunar.
+
+socketctl, Termux mobil ortamı için tasarlanmış kapsamlı bir Bash betiğidir. Temel amacı, kullanıcı tanımlı TCP portlarının arka planda güvenli ve sistematik bir şekilde dinlenmesini sağlamak ve bu süreçleri etkin bir şekilde yönetmektir. Program, standart Netcat (nc) aracını kullanarak socket yönetimini basitleştirmekte ve süreç takibi için PID (Process ID) dosyalarını kullanmaktadır.
+Komutlar ve İşlevsellik
+Program, sembolik bağlantılar (opensocket, shutdownsocket) ve ana betik (socketctl) aracılığıyla beş temel işlevi yerine getirmek üzere geliştirilmiştir:
+1. Port Açma (opensocket <PORT>)
+ * İşlev: Belirtilen port numarasını Netcat (nc -l -k -p) ile arka planda dinlemeye alır. -k (keep-alive) parametresi sayesinde ilk bağlantı kesilse bile dinleme süreci devam eder.
+ * Kontrol: Portun zaten aktif olup olmadığı kontrol edilir. Aktif ise hata mesajı verir.
+ * Yönetim: Dinleme sürecinin PID değeri, port numarasına özel bir dosyaya (/data/data/com.termux/files/usr/tmp/socket.<PORT>.pid) kaydedilir.
+2. Port Kapatma (shutdownsocket <PORT>)
+ * İşlev: Belirtilen port numarasının PID dosyasını okur ve süreci sonlandırır.
+ * Kapatma Mekanizması:
+   * Varsayılan olarak, sürece kibarca sonlandırma sinyali (SIGTERM) gönderilir.
+   * Opsiyonel olarak, shutdownsocket -f <PORT> veya shutdownsocket --force <PORT> komutu ile sürece önce SIGTERM, bir saniye içinde sonlanmazsa zorla sonlandırma sinyali (SIGKILL) gönderilir.
+ * Temizlik: Sürecin başarıyla sonlanmasının ardından ilgili PID dosyası silinir.
+3. Durum Sorgulama (socketctl status <PORT>)
+ * İşlev: Belirtilen port numarasının aktif dinlemede olup olmadığını kontrol eder ve ekrana detaylı bilgi sunar.
+ * Yöntem: PID dosyasını kontrol eder ve bu PID'ye karşılık gelen sürecin hala çalışıp çalışmadığını kill -0 komutu ile doğrular. Süreç çalışmıyorsa PID dosyası temizlenir.
+4. Aktif Portları Listeleme (socketctl list)
+ * İşlev: Şu anda socketctl tarafından yönetilen ve aktif dinlemede olan tüm portları, ilgili PID numaralarıyla birlikte listeler.
+ * Yöntem: Geçici PID dizinindeki tüm PID dosyaları taranır ve süreçleri hala aktif olan portlar raporlanır.
+5. Hata Ayıklama (socketctl debug [on|off])
+ * İşlev: Betiğin iç operasyonları ve komut akışları hakkında ayrıntılı günlük kaydı tutulmasını sağlar.
+ * Yöntem: Debug modu açıldığında tüm operasyonlar, tarih ve saat damgası ile birlikte /data/data/com.termux/files/usr/tmp/socketctl.log dosyasına yazılır. Bu, hata tespiti ve performans takibi için kritik öneme sahiptir.
+Teknik Gereksinimler ve Bağımlılıklar
+Programın Termux ortamında düzgün çalışabilmesi için aşağıdaki temel paketlerin yüklü olması şarttır:
+ * wget (İndirme ve güncelleme işlemleri için)
+ * netcat-openbsd (Socket dinleme operasyonları için, komut içinde nc olarak çağrılır)
+Güvenlik ve Süreç Yönetimi
+ * PID Yönetimi: Program, süreçlerin doğru şekilde sonlandırılabilmesi için her dinleme sürecinin PID'sini geçici dosyalarda saklar.
+ * Port Sınırlaması: Güvenlik ve sistem stabilitesi nedeniyle, port numaraları 1025 ile 65535 aralığıyla sınırlandırılmıştır. 1024 ve altındaki ayrıcalıklı portlara (privileged ports) erişim engellenmiştir.
+ * Hata Kontrolü: Eksik veya hatalı argüman girişi (port numarası eksikliği, hatalı komutlar) durumunda kullanıcıya bilgilendirici hatalar döndürülür.
