@@ -29,3 +29,5 @@ Güvenlik ve Süreç Yönetimi
  * PID Yönetimi: Program, süreçlerin doğru şekilde sonlandırılabilmesi için her dinleme sürecinin PID'sini geçici dosyalarda saklar.
  * Port Sınırlaması: Güvenlik ve sistem stabilitesi nedeniyle, port numaraları 1025 ile 65535 aralığıyla sınırlandırılmıştır. 1024 ve altındaki ayrıcalıklı portlara (privileged ports) erişim engellenmiştir.
  * Hata Kontrolü: Eksik veya hatalı argüman girişi (port numarası eksikliği, hatalı komutlar) durumunda kullanıcıya bilgilendirici hatalar döndürülür.
+Terminalden indirmek için;
+wget -O $PREFIX/bin/socketctl https://raw.githubusercontent.com/KodMaster31/OpenSocket/refs/heads/main/socketctl.sh && chmod +x $PREFIX/bin/socketctl && ln -s $PREFIX/bin/socketctl $PREFIX/bin/opensocket && ln -s $PREFIX/bin/socketctl $PREFIX/bin/shutdownsocket
