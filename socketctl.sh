@@ -1,14 +1,14 @@
 #!/data/data/com.termux/files/usr/bin/bash
 
-# Termux ortamında socket yönetimi (Geliştirilmiş Sürüm)
+# Termux ortamında socket yönetimi (KESİN DÜZELTİLMİŞ Sürüm)
 
 # Sabitler
 CMD_NAME=$(basename "$0")
 PORT="$1"
-ACTION="$1" # 'socketctl status 3131' gibi çağrımlar için
+ACTION="$1"
 PIDFILE="/data/data/com.termux/files/usr/tmp/socket.${PORT}.pid"
 LOGFILE="/data/data/com.termux/files/usr/tmp/socketctl.log"
-DEBUG=false # Hata ayıklama modu kapalı
+DEBUG=false 
 
 # --- Fonksiyonlar ---
 
@@ -26,24 +26,47 @@ port_kontrol() {
     fi
 }
 
-durum_kontrol() {
+# Sadece Çıkış Kodu (Return Code) Veren Durum Kontrolü
+# 0 = Aktif (Success)
+# 1 = Kapalı/Süreç Yok (Failure)
+durum_kontrol_sessiz() {
     local p="$1"
-    if [ -f "$PIDFILE" ]; then
-        PID=$(cat "$PIDFILE")
-        # Sürecin hala çalışıp çalışmadığını kontrol et
+    local pid_dosyasi="/data/data/com.termux/files/usr/tmp/socket.${p}.pid"
+
+    if [ -f "$pid_dosyasi" ]; then
+        PID=$(cat "$pid_dosyasi")
         if kill -0 "$PID" 2>/dev/null; then
-            echo "AKTİF: Port $p dinlemede (PID: $PID)."
+            log_message "Port $p aktif (PID: $PID)"
             return 0 # Aktif
         else
-            echo "PASİF: Port $p kapalı görünüyor. PID dosyası temizleniyor."
-            rm -f "$PIDFILE"
+            log_message "Port $p PID dosyasi var ama surec yok. Temizleniyor."
+            rm -f "$pid_dosyasi" 2>/dev/null
             return 1 # PID dosyası var ama süreç yok
         fi
     else
-        echo "KAPALI: Port $p dinlemede değil."
+        log_message "Port $p kapali."
         return 1 # Kapalı
     fi
 }
+
+# Kullanıcıya Çıktı Veren Durum Kontrolü (Sadece 'socketctl status' için)
+durum_kontrol_sozlu() {
+    local p="$1"
+    local pid_dosyasi="/data/data/com.termux/files/usr/tmp/socket.${p}.pid"
+    
+    if [ -f "$pid_dosyasi" ]; then
+        PID=$(cat "$pid_dosyasi")
+        if kill -0 "$PID" 2>/dev/null; then
+            echo "AKTİF: Port $p dinlemede (PID: $PID)."
+        else
+            echo "PASİF: Port $p kapalı görünüyor. PID dosyası temizleniyor."
+            rm -f "$pid_dosyasi" 2>/dev/null
+        fi
+    else
+        echo "KAPALI: Port $p dinlemede değil."
+    fi
+}
+
 
 # --- Ana İşlem Akışı ---
 
@@ -52,7 +75,7 @@ if [ "$CMD_NAME" == "socketctl" ]; then
     ACTION="$1"
     PORT="$2"
     
-    # Hata ayıklama modunu aç/kapat kontrolü
+    # Hata ayıklama modu
     if [ "$ACTION" == "debug" ]; then
         if [ "$2" == "on" ]; then
             DEBUG=true
@@ -77,10 +100,14 @@ if [ "$CMD_NAME" == "socketctl" ]; then
         echo -e "  shutdownsocket <PORT>    - Portu kapat."
         exit 1
     fi
-
+    
     if [ "$ACTION" == "status" ]; then
+        if [ -z "$PORT" ]; then
+            echo -e "\nStatus için port numarası gir, tembel!"
+            exit 1
+        fi
         port_kontrol "$PORT"
-        durum_kontrol "$PORT"
+        durum_kontrol_sozlu "$PORT"
         exit 0
     fi
 fi 
@@ -91,23 +118,23 @@ if [ -z "$PORT" ]; then
     exit 1
 fi
 
-# Port kontrolü
 port_kontrol "$PORT"
 
 case "$CMD_NAME" in
     opensocket)
         log_message "opensocket $PORT komutu calisti."
 
-        if durum_kontrol "$PORT"; then
+        # SESSİZ KONTROL YAPILIYOR
+        if durum_kontrol_sessiz "$PORT"; then
+            echo -e "\nAKTİF: Port $PORT dinlemede (PID: $(cat "$PIDFILE"))."
             echo -e "\nHata: Port $PORT zaten dinlemede. Boşuna yorma beni."
             exit 1
         fi
         
         echo -e "\nSENİN İÇİN port $PORT'u arka planda dinlemeye alıyorum..."
-        # nc'yi arka planda başlat, -k ile bağlantı kopsa da dinlemeye devam etsin.
+        # nc'yi arka planda başlat
         nc -l -k -p "$PORT" -v > /dev/null 2>&1 &
         
-        # PID'yi dosyaya yaz
         echo $! > "$PIDFILE"
         log_message "nc islemi baslatildi, PID: $! dosyaya yazildi."
         
@@ -117,7 +144,7 @@ case "$CMD_NAME" in
     shutdownsocket)
         log_message "shutdownsocket $PORT komutu calisti."
 
-        if [ ! -f "$PIDFILE" ]; then
+        if ! durum_kontrol_sessiz "$PORT"; then
             echo -e "\nHata: Port $PORT zaten kapalı görünüyor. Temiz iş."
             exit 1
         fi
@@ -136,11 +163,5 @@ case "$CMD_NAME" in
             rm -f "$PIDFILE"
             log_message "PID dosyasi vardi ancak surec calismiyordu. Dosya temizlendi."
         fi
-        ;;
-
-    socketctl)
-        # Eğer socketctl çağrıldıysa ve status değilse buraya düşer
-        echo -e "\nNe yaptığını bilmiyorsun. 'status' komutunu mu unuttun?"
-        exit 1
         ;;
 esac
