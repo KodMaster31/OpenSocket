@@ -56,18 +56,12 @@ Port Sınırlaması: Güvenlik ve sistem kararlılığını korumak amacıyla, p
 
 Hata Kontrolü: Eksik veya hatalı kullanıcı girişi (port numarası eksikliği, hatalı komut sözdizimi) durumunda kullanıcıya bilgilendirici ve yönlendirici hata mesajları sunulur.
 
-5. Kurulum Prosedürü
-5.1. Termux Ortamında Kurulum
-Termux komut satırında tek bir komut ile indirme, çalıştırma izni verme ve sembolik bağlantıları kurma işlemleri tamamlanır:
+KURULUM 
 
-Bash
+TERMUX VEYA LİNUX TERMİNALİ İÇİN
 
-wget -O $PREFIX/bin/socketctl https://raw.githubusercontent.com/KodMaster31/OpenSocket/refs/heads/main/socketctl.sh && chmod +x $PREFIX/bin/socketctl && ln -s $PREFIX/bin/socketctl $PREFIX/bin/opensocket && ln -s $PREFIX/bin/socketctl $PREFIX/bin/shutdownsocket
-5.2. Windows (PowerShell) Ortamında Kurulum
-Bu betiğin Windows'taki eşdeğeri olan PowerShell sürümünü indirmek ve çalıştırmak için aşağıdaki komutlar sırayla uygulanır:
+pkg update -y && pkg install wget netcat-openbsd -y && wget -O $PREFIX/bin/socketctl https://raw.githubusercontent.com/KodMaster31/OpenSocket/refs/heads/main/socketctl.sh && chmod +x $PREFIX/bin/socketctl && ln -s $PREFIX/bin/socketctl $PREFIX/bin/opensocket && ln -s $PREFIX/bin/socketctl $PREFIX/bin/shutdownsocket
 
-İndirme:
-
-PowerShell
+POWERSHELL İÇİN
 
 Invoke-WebRequest -Uri "https://raw.githubusercontent.com/KodMaster31/OpenSocket/refs/heads/main/socketctl.py" -OutFile "socketctl.py"
