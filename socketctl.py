@@ -4,6 +4,17 @@ import socket
 import subprocess
 import time
 import signal 
+import io
+
+# KRİTİK BAŞLANGIÇ DÜZELTMESİ: Windows'un lanet olası cp1252 (charmap) kodlama sorununu aşmak için
+# Konsol cikisini (stdout ve stderr) zorla UTF-8'e ceviriyoruz.
+try:
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
+except Exception as e:
+    # Eger bu bile patlarsa, artik yapacak bir sey kalmadi.
+    print(f"UYARI: UTF-8 zorlaması başarısız oldu: {e}", file=sys.stderr)
+
 
 # Sabitler (Windows'ta gecici dosyalar icin %TEMP% kullanilir)
 PID_DIR = os.path.join(os.environ.get('TEMP', r'C:\Temp'), "SocketControl")
@@ -12,27 +23,29 @@ PID_FILE_TEMPLATE = "socket.{}.pid"
 # --- Yardimci Fonksiyonlar ---
 
 def log_message(message):
-    """Basit loglama islemi. Bu sefer SADECE Ingilizce karakterler kullanir."""
+    """Basit loglama islemi. Log dosyasini kesinlikle UTF-8 ile yazar."""
     LOG_FILE = os.path.join(PID_DIR, "socketctl.log")
     timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
-    # encoding parametresi kaldirildi cunku artik Turkce karakter yok.
+    
     try:
         os.makedirs(PID_DIR, exist_ok=True)
-        with open(LOG_FILE, 'a') as f:
+        # Log dosyasini acarken de kesinlikle UTF-8 kullan!
+        with open(LOG_FILE, 'a', encoding='utf-8') as f:
             f.write(f"[{timestamp}] {message}\n")
     except Exception as e:
-        print(f"Loglama Hatasi: {e}", file=sys.stderr)
+        # Eger loglama bile basarisiz olursa, hatayi konsola bas
+        print(f"Loglama Hatası: {e}", file=sys.stderr)
 
 def port_kontrol(port):
     """Port numarasinin gecerliligini kontrol eder."""
     try:
         port = int(port)
         if not (1025 <= port <= 65535):
-            print("\nHata: Port numarasi 1025 ile 65535 arasinda olmali. Ne salliyorsun?\n", file=sys.stderr)
+            print("\nHata: Port numarası 1025 ile 65535 arasında olmalı. Ne sallıyorsun?\n", file=sys.stderr)
             sys.exit(1)
         return port
     except ValueError:
-        print("\nHata: Port numarasi tam sayi olmali. Harf falan girme.\n", file=sys.stderr)
+        print("\nHata: Port numarası tam sayı olmalı. Harf falan girme.\n", file=sys.stderr)
         sys.exit(1)
 
 def get_pid_file_path(port):
@@ -43,7 +56,7 @@ def get_pid_file_path(port):
 def durum_kontrol_sessiz(port):
     """
     Portun aktif olup olmadigini sessizce kontrol eder.
-    Donen deger: (bool aktif, int pid)
+    Dönen deger: (bool aktif, int pid)
     """
     pid_file = get_pid_file_path(port)
 
@@ -52,7 +65,7 @@ def durum_kontrol_sessiz(port):
             with open(pid_file, 'r') as f:
                 pid = int(f.read().strip())
         except ValueError:
-            log_message(f"Hata: Bozuk PID dosyasi {pid_file} temizlendi.")
+            log_message(f"Hata: Bozuk PID dosyası {pid_file} temizlendi.")
             os.remove(pid_file)
             return False, 0
         
@@ -68,12 +81,12 @@ def durum_kontrol_sessiz(port):
                  log_message(f"PID {pid} aktif.")
                  return True, pid
             else:
-                log_message(f"PID {pid} sureci bulunamadi, PID dosyasi temizlendi.")
+                log_message(f"PID {pid} süreci bulunamadı, PID dosyası temizlendi.")
                 os.remove(pid_file)
                 return False, 0
                 
         except Exception as e:
-            log_message(f"tasklist kontrolu sirasinda hata olustu: {e}")
+            log_message(f"tasklist kontrolü sırasında hata oluştu: {e}")
             try:
                 os.remove(pid_file)
             except:
@@ -88,14 +101,14 @@ def opensocket_main(port_num):
     """Portu arka planda dinlemeye alir."""
     port = port_kontrol(port_num)
     aktif, pid = durum_kontrol_sessiz(port)
-    log_message(f"opensocket {port} calistirildi.")
+    log_message(f"opensocket {port} çalıştırıldı.")
 
     if aktif:
-        print(f"AKTIF: Port {port} dinlemede (PID: {pid}).")
-        print(f"Hata: Port {port} zaten dinlemede. Bosuna yorma beni.", file=sys.stderr)
+        print(f"AKTİF: Port {port} dinlemede (PID: {pid}).")
+        print(f"Hata: Port {port} zaten dinlemede. Boşuna yorma beni.", file=sys.stderr)
         sys.exit(1)
 
-    print(f"\nSENIN ICIN port {port}'u arka planda dinlemeye aliyorum...")
+    print(f"\nSENİN İÇİN port {port}'u arka planda dinlemeye alıyorum...")
     
     # Python betigini kendi kendine arka planda baslatma
     try:
@@ -110,12 +123,12 @@ def opensocket_main(port_num):
         with open(pid_file, 'w') as f:
             f.write(str(process.pid))
         
-        log_message(f"Dinleme sureci baslatildi. Port: {port}, PID: {process.pid}")
-        print(f"Port {port} basariyla acildi (PID: {process.pid}). Kapatmak icin: python socketctl.py shutdown {port}")
+        log_message(f"Dinleme süreci başlatıldı. Port: {port}, PID: {process.pid}")
+        print(f"Port {port} başarıyla açıldı (PID: {process.pid}). Kapatmak için: python socketctl.py shutdown {port}")
     
     except Exception as e:
-        log_message(f"opensocket baslatma hatasi: {e}")
-        print(f"\nBeklenmedik bir hata olustu: {e}", file=sys.stderr)
+        log_message(f"opensocket başlatma hatası: {e}")
+        print(f"\nBeklenmedik bir hata oluştu: {e}", file=sys.stderr)
         sys.exit(1)
 
 
@@ -123,39 +136,39 @@ def shutdownsocket_main(port_num, force=False):
     """Port dinlemesini sonlandirir."""
     port = port_kontrol(port_num)
     aktif, pid = durum_kontrol_sessiz(port)
-    log_message(f"shutdownsocket {port} {'(Force)' if force else '(Kibar)'} calistirildi.")
+    log_message(f"shutdownsocket {port} {'(Force)' if force else '(Kibar)'} çalıştırıldı.")
 
     if not aktif:
-        print(f"\nHata: Port {port} zaten kapali gorunuyor. Temiz is.", file=sys.stderr)
+        print(f"\nHata: Port {port} zaten kapalı görünüyor. Temiz iş.", file=sys.stderr)
         sys.exit(1)
 
-    # Sureci sonlandirma
+    # Süreci sonlandırma
     try:
-        # Kibarca sonlandirma (SIGTERM/taskkill)
+        # Kibarca sonlandırma (SIGTERM/taskkill)
         subprocess.run(['taskkill', '/PID', str(pid), '/T'], check=False, capture_output=True, encoding='utf-8')
         time.sleep(0.5)
         
-        # Zorla kapatma mantigi (SIGKILL/taskkill /F)
+        # Zorla kapatma mantığı (SIGKILL/taskkill /F)
         if force or (durum_kontrol_sessiz(port)[0]):
             if force:
-                print(f"Uyari: Surec {pid} kibarca kapanmayi reddetti. SIDDET UYGULANIYOR (/F)!")
+                print(f"Uyarı: Süreç {pid} kibarca kapanmayı reddetti. ŞİDDET UYGULANIYOR (/F)!")
             
             subprocess.run(['taskkill', '/F', '/PID', str(pid), '/T'], check=False, capture_output=True, encoding='utf-8')
             time.sleep(0.5)
 
         # Son Kontrol
         if not durum_kontrol_sessiz(port)[0]:
-            print(f"\nIs bitti. Port {port} (PID {pid}) kilictan gecirildi ve kapatildi.")
+            print(f"\nİş bitti. Port {port} (PID {pid}) kılıçtan geçirildi ve kapatıldı.")
             if os.path.exists(get_pid_file_path(port)):
                 os.remove(get_pid_file_path(port))
         else:
-            log_message(f"Hata: Surec {pid} sonlandirilamadi.")
-            print(f"\nHata: Surec {pid} sonlandirilamadi. Manuel kontrol gerekli.", file=sys.stderr)
+            log_message(f"Hata: Süreç {pid} sonlandırılamadı.")
+            print(f"\nHata: Süreç {pid} sonlandırılamadı. Manuel kontrol gerekli.", file=sys.stderr)
             sys.exit(1)
             
     except Exception as e:
-        log_message(f"shutdownsocket hatasi: {e}")
-        print(f"Hata olustu: {e}", file=sys.stderr)
+        log_message(f"shutdownsocket hatası: {e}")
+        print(f"Hata oluştu: {e}", file=sys.stderr)
         sys.exit(1)
 
 
@@ -165,17 +178,17 @@ def status_main(port_num):
     aktif, pid = durum_kontrol_sessiz(port)
 
     if aktif:
-        print(f"AKTIF: Port {port} dinlemede (PID: {pid}).")
+        print(f"AKTİF: Port {port} dinlemede (PID: {pid}).")
     else:
-        print(f"KAPALI: Port {port} dinlemede degil.")
+        print(f"KAPALI: Port {port} dinlemede değil.")
 
 def list_main():
-    """Tum aktif portlari listeler."""
+    """Tüm aktif portları listeler."""
     print("\n--- Aktif Socket Dinlemeleri ---")
     found = False
     
     if not os.path.exists(PID_DIR):
-        print("  Aktif dinlemede olan port bulunamadi.")
+        print("  Aktif dinlemede olan port bulunamadı.")
         return
 
     for filename in os.listdir(PID_DIR):
@@ -192,12 +205,12 @@ def list_main():
                 pass 
 
     if not found:
-        print("  Aktif dinlemede olan port bulunamadi. Rahatlik batiyor mu?")
+        print("  Aktif dinlemede olan port bulunamadı. Rahatlık batıyor mu?")
     print("-------------------------------------")
 
 
 def listen_main(port_num):
-    """Arka plan sureci tarafindan cagrilan asil dinleme islevi."""
+    """Arka plan süreci tarafından çağrılan asıl dinleme işlevi."""
     port = port_kontrol(port_num)
     
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -206,38 +219,38 @@ def listen_main(port_num):
     try:
         server_socket.bind(('0.0.0.0', port))
         server_socket.listen(5)
-        log_message(f"Port {port} dinlemeye basladi (Surecin PID'si: {os.getpid()}).")
+        log_message(f"Port {port} dinlemeye başladı (Sürecin PID'si: {os.getpid()}).")
         
         while True:
             conn, addr = server_socket.accept()
-            log_message(f"Port {port}'a baglanti geldi: {addr[0]}")
+            log_message(f"Port {port}'a bağlantı geldi: {addr[0]}")
             conn.close() 
 
     except KeyboardInterrupt:
-        log_message(f"Port {port} Klayve kesintisi ile kapaniyor.")
+        log_message(f"Port {port} Klayve kesintisi ile kapatılıyor.")
     except Exception as e:
-        log_message(f"Port {port} dinleme sirasinda hata olustu: {e}")
+        log_message(f"Port {port} dinleme sırasında hata oluştu: {e}")
     finally:
         server_socket.close()
         pid_file = get_pid_file_path(port)
         if os.path.exists(pid_file):
-             log_message(f"Port {port} kapandi. PID dosyasi temizlendi.")
+             log_message(f"Port {port} kapandı. PID dosyası temizlendi.")
              os.remove(pid_file)
 
 
 def usage():
-    """Kullanim Kilavuzu."""
-    print("\nUlan dangalak! Ne yapmami istiyorsun?")
-    print("Kullanim (CMD veya PowerShell'de):")
-    print("  python socketctl.py opensocket <PORT>    - Portu ac.")
+    """Kullanım Kılavuzu."""
+    print("\nUlan dangalak! Ne yapmamı istiyorsun?")
+    print("Kullanım (CMD veya PowerShell'de):")
+    print("  python socketctl.py opensocket <PORT>    - Portu aç.")
     print("  python socketctl.py shutdown <PORT>      - Portu kapat (Kibarca).")
     print("  python socketctl.py shutdown -f <PORT>   - Portu kapat (Zorla).")
     print("  python socketctl.py status <PORT>        - Portun durumunu sorgula.")
-    print("  python socketctl.py list                 - Tum aktif portlari listele.")
+    print("  python socketctl.py list                 - Tüm aktif portları listele.")
     sys.exit(1)
 
 
-# --- Ana Program Girisi ---
+# --- Ana Program Girişi ---
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
