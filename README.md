@@ -70,14 +70,4 @@ Bu betiğin Windows'taki eşdeğeri olan PowerShell sürümünü indirmek ve ça
 
 PowerShell
 
-Invoke-WebRequest -Uri "https://raw.githubusercontent.com/KodMaster31/OpenSocket/refs/heads/main/soketctl.py" -OutFile "soketctl.py"
-Yürütme Yetkisi Verme: (Betiklerin yerel ortamda çalıştırılmasına izin verir.)
-
-PowerShell
-
-Set-ExecutionPolicy RemoteSigned -Scope CurrentUser
-Çalıştırma:
-
-PowerShell
-
-. .\soketctl.py
+Invoke-WebRequest -Uri "https://raw.githubusercontent.com/KodMaster31/OpenSocket/refs/heads/main/socketctl.py" -OutFile "socketctl.py"
