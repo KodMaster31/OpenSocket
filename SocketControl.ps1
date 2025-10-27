@@ -28,7 +28,6 @@ if (-not (Test-Path $PID_DIR)) {
 function Log-Message {
     param([Parameter(Mandatory=$true)][string]$Message)
     
-    # PowerShell'de log yazma
     "$((Get-Date -Format 'HH:mm:ss')) - $Message" | Out-File -FilePath $LOG_FILE -Append
 }
 
@@ -51,12 +50,12 @@ function Test-SocketActive {
     
     $PidFile = Get-PidFile -Port $Port
     if (Test-Path $PidFile) {
-        $PID = [int](Get-Content $PidFile)
+        $SocketPID = [int](Get-Content $PidFile) # PID DEĞİŞKENİ BURADA DÜZELTİLDİ
         
         # Sürecin hala çalışıp çalışmadığını kontrol et
         try {
-            Get-Process -Id $PID | Out-Null
-            Log-Message "Port $Port aktif (PID: $PID)"
+            Get-Process -Id $SocketPID | Out-Null
+            Log-Message "Port $Port aktif (PID: $SocketPID)"
             return $true # Aktif
         } catch {
             Log-Message "Port $Port PID dosyasi var ama surec yok. Temizleniyor."
@@ -78,8 +77,8 @@ function Open-Socket {
     Log-Message "Open-Socket $Port komutu calisti."
     
     if (Test-SocketActive -Port $Port) {
-        $PID = [int](Get-Content (Get-PidFile -Port $Port))
-        Write-Error "Hata: Port $Port zaten dinlemede (PID: $PID). Boşuna yorma beni."
+        $SocketPID = [int](Get-Content (Get-PidFile -Port $Port)) # PID DEĞİŞKENİ BURADA DÜZELTİLDİ
+        Write-Error "Hata: Port $Port zaten dinlemede (PID: $SocketPID). Boşuna yorma beni."
         exit 1
     }
     
@@ -89,16 +88,13 @@ function Open-Socket {
     $ScriptBlock = {
         param($ListenPort, $PidFile)
         
-        # Hata Yönetimi: Try/Finally bloğu dinleme sürecini temiz kapatmayı sağlar.
         try {
-            # TcpListener objesi oluşturulur
             $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Any, $ListenPort)
             $listener.Start()
             
-            # Ana süreç PID'si PID dosyasına yazılır
+            # Ana süreç PID'si PID dosyasına yazılır. $PID, Start-Job'ın otomatik atadığı PID'dir.
             $PID | Out-File -FilePath $PidFile -Force
             
-            # Sürekli dinleme döngüsü: İşlemciyi yormamak için kısa bir bekleme yapılır.
             while ($true) {
                 Start-Sleep -Seconds 1 
             }
@@ -107,25 +103,17 @@ function Open-Socket {
             if ($listener -ne $null) {
                 $listener.Stop()
             }
-            # Süreç kapanınca dosyayı sil, ama PID başka bir işlem tarafından kullanılmadığından emin ol.
-            # (Bu temizlik Close-Socket'a bırakılmıştır, çünkü Start-Job kapatılmazsa bu kısım çalışmaz.)
         }
     }
 
-    # Yeni bir PowerShell süreci (Job) başlat ve betiği arka planda çalıştır
     Start-Job -ScriptBlock $ScriptBlock -ArgumentList $Port, (Get-PidFile -Port $Port) | Out-Null
     
-    # PID dosyasının oluşmasını beklemek için kısa bir gecikme
     Start-Sleep -Seconds 2
     
-    # PID'yi dosyadan oku (Job'un PID'sini değil, TcpListener'ın PID'sini okumalıyız, ancak bu yapı Job'ın PID'sini döner.
-    # Bash'teki basitlik burada yok. TcpListener'ın kendi PID'sini almalıyız. 
-    # Ancak Start-Job kullanıldığı için PID'yi dosyadan okumak en pratik yoldur.
+    $SocketPID = [int](Get-Content (Get-PidFile -Port $Port)) # PID DEĞİŞKENİ BURADA DÜZELTİLDİ
+    Log-Message "TcpListener islemi (Job) baslatildi, PID: $SocketPID dosyaya yazildi."
     
-    $PID = [int](Get-Content (Get-PidFile -Port $Port))
-    Log-Message "TcpListener islemi (Job) baslatildi, PID: $PID dosyaya yazildi."
-    
-    Write-Host "Port $Port başarıyla açıldı (PID: $PID). Kapatmak için: Close-Socket $Port"
+    Write-Host "Port $Port başarıyla açıldı (PID: $SocketPID). Kapatmak için: Close-Socket $Port"
 }
 
 
@@ -144,27 +132,25 @@ function Close-Socket {
     }
     
     $PidFile = Get-PidFile -Port $Port
-    $PID = [int](Get-Content $PidFile)
+    $SocketPID = [int](Get-Content $PidFile) # PID DEĞİŞKENİ BURADA DÜZELTİLDİ
     
-    # Süreç kapatma (SIGTERM muadili)
-    Stop-Process -Id $PID -Force:$false -ErrorAction SilentlyContinue
-    Log-Message "PID $PID'ye durdurma sinyali gönderildi."
+    Stop-Process -Id $SocketPID -Force:$false -ErrorAction SilentlyContinue
+    Log-Message "PID $SocketPID'ye durdurma sinyali gönderildi."
     
-    # Zorla kapatma mantığı (SIGKILL muadili)
     if ($Force.IsPresent) {
         Start-Sleep -Seconds 1
-        if (Get-Process -Id $PID -ErrorAction SilentlyContinue) {
-            Write-Warning "Süreç $PID kibarca kapanmayı reddetti. ŞİDDET UYGULANIYOR (-Force)!"
-            Stop-Process -Id $PID -Force
-            Log-Message "PID $PID zorla sonlandirildi (Force)."
+        if (Get-Process -Id $SocketPID -ErrorAction SilentlyContinue) {
+            Write-Warning "Süreç $SocketPID kibarca kapanmayı reddetti. ŞİDDET UYGULANIYOR (-Force)!"
+            Stop-Process -Id $SocketPID -Force
+            Log-Message "PID $SocketPID zorla sonlandirildi (Force)."
         }
     }
 
-    if (-not (Get-Process -Id $PID -ErrorAction SilentlyContinue)) {
-        Write-Host "`nİş bitti. Port $Port (PID $PID) kılıçtan geçirildi ve kapatıldı."
+    if (-not (Get-Process -Id $SocketPID -ErrorAction SilentlyContinue)) {
+        Write-Host "`nİş bitti. Port $Port (PID $SocketPID) kılıçtan geçirildi ve kapatıldı."
         Remove-Item $PidFile -Force -ErrorAction SilentlyContinue
     } else {
-        Write-Error "`nHata: Süreç $PID sonlandırılamadı. Manuel kontrol gerekli."
+        Write-Error "`nHata: Süreç $SocketPID sonlandırılamadı. Manuel kontrol gerekli."
     }
 }
 
@@ -173,8 +159,8 @@ function Get-SocketStatus {
     
     Test-PortValid -Port $Port
     if (Test-SocketActive -Port $Port) {
-        $PID = [int](Get-Content (Get-PidFile -Port $Port))
-        Write-Host "AKTİF: Port $Port dinlemede (PID: $PID)."
+        $SocketPID = [int](Get-Content (Get-PidFile -Port $Port)) # PID DEĞİŞKENİ BURADA DÜZELTİLDİ
+        Write-Host "AKTİF: Port $Port dinlemede (PID: $SocketPID)."
     } else {
         Write-Host "KAPALI: Port $Port dinlemede değil."
     }
@@ -184,15 +170,12 @@ function List-Sockets {
     Write-Host "`n--- Aktif Socket Dinlemeleri ---"
     $found = $false
     
-    # PID dizinindeki tüm socket.*.pid dosyalarını kontrol et
     Get-ChildItem $PID_DIR -Filter "socket.*.pid" -ErrorAction SilentlyContinue | ForEach-Object {
-        # Dosya adından port numarasını çıkar
         $Port = [int]($_.BaseName -replace "socket.")
         
-        # Portun hala aktif olup olmadığını kontrol et (Test-SocketActive)
         if (Test-SocketActive -Port $Port) {
-            $PID = [int](Get-Content $_.FullName)
-            Write-Host "  Port: $Port (PID: $PID)"
+            $SocketPID = [int](Get-Content $_.FullName) # PID DEĞİŞKENİ BURADA DÜZELTİLDİ
+            Write-Host "  Port: $Port (PID: $SocketPID)"
             $found = $true
         }
     }
