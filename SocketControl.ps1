@@ -1,7 +1,6 @@
 <#
 .SYNOPSIS
 SocketControl - PowerShell tabanlı TCP Port Yönetim Betiği (socketctl muadili).
-Mustafa için KodMaster31/OpenSocket mantığı ile yazılmıştır.
 
 .DESCRIPTION
 Bu betik, belirli bir TCP portunu arka planda dinlemeye almak (Open-Socket),
@@ -29,7 +28,7 @@ if (-not (Test-Path $PID_DIR)) {
 function Log-Message {
     param([Parameter(Mandatory=$true)][string]$Message)
     
-    # PowerShell'de debug modu yerine her zaman log yazalım, kullanıcı isterse dosyaya bakar.
+    # PowerShell'de log yazma
     "$((Get-Date -Format 'HH:mm:ss')) - $Message" | Out-File -FilePath $LOG_FILE -Append
 }
 
@@ -61,7 +60,7 @@ function Test-SocketActive {
             return $true # Aktif
         } catch {
             Log-Message "Port $Port PID dosyasi var ama surec yok. Temizleniyor."
-            Remove-Item $PidFile -Force
+            Remove-Item $PidFile -Force -ErrorAction SilentlyContinue
             return $false # PID dosyası var ama süreç yok
         }
     } else {
@@ -86,46 +85,45 @@ function Open-Socket {
     
     Write-Host "`nSENİN İÇİN port $Port'u arka planda dinlemeye alıyorum..."
 
-    # PowerShell'de port dinlemek Netcat yerine TcpListener ile yapılır ve bu, 
-    # ayrı bir PowerShell örneği olarak arka planda başlatılmalıdır.
-    
     # Arka plan süreci olarak listener başlatma betiği
     $ScriptBlock = {
         param($ListenPort, $PidFile)
         
-        # TcpListener objesi oluşturulur
-        $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Any, $ListenPort)
-        
+        # Hata Yönetimi: Try/Finally bloğu dinleme sürecini temiz kapatmayı sağlar.
         try {
+            # TcpListener objesi oluşturulur
+            $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Any, $ListenPort)
             $listener.Start()
             
             # Ana süreç PID'si PID dosyasına yazılır
-            $pid = $PID
-            $pid | Out-File -FilePath $PidFile -Force
+            $PID | Out-File -FilePath $PidFile -Force
             
-            # Sürekli dinleme döngüsü (Bağlantı geldiğinde kapatılmasın diye sonsuz döngü)
+            # Sürekli dinleme döngüsü: İşlemciyi yormamak için kısa bir bekleme yapılır.
             while ($true) {
-                # Bağlantı beklemek, veri almak, göndermek burada yapılır.
-                # Basit bir dinleme betiği için, sadece süreci ayakta tutmak yeterlidir.
-                Start-Sleep -Seconds 1 # İşlemciyi yormamak için kısa bir bekleme
+                Start-Sleep -Seconds 1 
             }
         }
         finally {
             if ($listener -ne $null) {
                 $listener.Stop()
             }
-            Remove-Item $PidFile -Force # Süreç kapanınca dosyayı sil
+            # Süreç kapanınca dosyayı sil, ama PID başka bir işlem tarafından kullanılmadığından emin ol.
+            # (Bu temizlik Close-Socket'a bırakılmıştır, çünkü Start-Job kapatılmazsa bu kısım çalışmaz.)
         }
     }
 
-    # Yeni bir PowerShell süreci başlat ve betiği arka planda çalıştır
+    # Yeni bir PowerShell süreci (Job) başlat ve betiği arka planda çalıştır
     Start-Job -ScriptBlock $ScriptBlock -ArgumentList $Port, (Get-PidFile -Port $Port) | Out-Null
     
     # PID dosyasının oluşmasını beklemek için kısa bir gecikme
     Start-Sleep -Seconds 2
     
+    # PID'yi dosyadan oku (Job'un PID'sini değil, TcpListener'ın PID'sini okumalıyız, ancak bu yapı Job'ın PID'sini döner.
+    # Bash'teki basitlik burada yok. TcpListener'ın kendi PID'sini almalıyız. 
+    # Ancak Start-Job kullanıldığı için PID'yi dosyadan okumak en pratik yoldur.
+    
     $PID = [int](Get-Content (Get-PidFile -Port $Port))
-    Log-Message "TcpListener islemi baslatildi, PID: $PID dosyaya yazildi."
+    Log-Message "TcpListener islemi (Job) baslatildi, PID: $PID dosyaya yazildi."
     
     Write-Host "Port $Port başarıyla açıldı (PID: $PID). Kapatmak için: Close-Socket $Port"
 }
@@ -153,12 +151,10 @@ function Close-Socket {
     Log-Message "PID $PID'ye durdurma sinyali gönderildi."
     
     # Zorla kapatma mantığı (SIGKILL muadili)
-    if ($Force -or (Get-Process -Id $PID -ErrorAction SilentlyContinue)) {
+    if ($Force.IsPresent) {
         Start-Sleep -Seconds 1
         if (Get-Process -Id $PID -ErrorAction SilentlyContinue) {
-             if ($Force) {
-                Write-Warning "Süreç $PID kibarca kapanmayı reddetti. ŞİDDET UYGULANIYOR (-Force)!"
-            }
+            Write-Warning "Süreç $PID kibarca kapanmayı reddetti. ŞİDDET UYGULANIYOR (-Force)!"
             Stop-Process -Id $PID -Force
             Log-Message "PID $PID zorla sonlandirildi (Force)."
         }
@@ -166,7 +162,7 @@ function Close-Socket {
 
     if (-not (Get-Process -Id $PID -ErrorAction SilentlyContinue)) {
         Write-Host "`nİş bitti. Port $Port (PID $PID) kılıçtan geçirildi ve kapatıldı."
-        Remove-Item $PidFile -Force
+        Remove-Item $PidFile -Force -ErrorAction SilentlyContinue
     } else {
         Write-Error "`nHata: Süreç $PID sonlandırılamadı. Manuel kontrol gerekli."
     }
@@ -188,8 +184,12 @@ function List-Sockets {
     Write-Host "`n--- Aktif Socket Dinlemeleri ---"
     $found = $false
     
-    Get-ChildItem $PID_DIR -Filter "socket.*.pid" | ForEach-Object {
-        $Port = [int]($_.BaseName -replace "socket." -replace ".pid")
+    # PID dizinindeki tüm socket.*.pid dosyalarını kontrol et
+    Get-ChildItem $PID_DIR -Filter "socket.*.pid" -ErrorAction SilentlyContinue | ForEach-Object {
+        # Dosya adından port numarasını çıkar
+        $Port = [int]($_.BaseName -replace "socket.")
+        
+        # Portun hala aktif olup olmadığını kontrol et (Test-SocketActive)
         if (Test-SocketActive -Port $Port) {
             $PID = [int](Get-Content $_.FullName)
             Write-Host "  Port: $Port (PID: $PID)"
@@ -202,17 +202,3 @@ function List-Sockets {
     }
     Write-Host "-------------------------------------"
 }
-
-# --- Komut Çağrım Noktası ---
-
-# Betiğin direkt çalıştırılması durumunda ana fonksiyonları dışarı aktar.
-# Bu, betiğin bir modül gibi çağrılmasını sağlar.
-Export-ModuleMember -Function Open-Socket, Close-Socket, Get-SocketStatus, List-Sockets
-
-# Eğer kullanıcı betiği direkt nokta operatörü ile çağırmazsa (yani ". .\SocketControl.ps1" yapmazsa)
-# script sadece fonksiyonları tanımlar. Bu yüzden manuel olarak komut çalıştırma mantığı gerekmez.
-# Kullanıcının betiği çalıştırma şekli:
-# 1. PowerShell'i aç
-# 2. Set-ExecutionPolicy RemoteSigned (Gerekiyorsa)
-# 3. . .\SocketControl.ps1 (Nokta ile kaynak göstererek çalıştır)
-# 4. Open-Socket 3131 (Artık fonksiyonlar çağrılabilir)
